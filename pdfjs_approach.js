@@ -146,7 +146,7 @@ Answer:`;
 (async () => {
   try {
     const vectorStore = await setupVectorStore();
-    const userQuery ="what is the reference of Digital signatures must be used to safeguard the integrity of GA code";
+    const userQuery ="what is the reference of this guideline Ensure that data can be transferred to other products or systems in a secure manner."
    
     const relevantDocs = await queryVectorStore(vectorStore, userQuery, 15);
 
