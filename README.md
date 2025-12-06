@@ -4,5 +4,5 @@ this performs RAG on pdfs
 
 Architecture:
 
-![RAG Workflow](https://github.com/Ccivam/RAG_ON_PDF/blob/main/rag_on_Pdf.png)
+![RAG Workflow](https://github.com/Ccivam/RAG_ON_PDF/blob/main/ragproject.png)
 
