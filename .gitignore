@@ -1,0 +1,7 @@
+node_modules/
+.env
+Product.pdf
+*.ipynb
+doc_loader2.js
+document_loader.js
+README.md
