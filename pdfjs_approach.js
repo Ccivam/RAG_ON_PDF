@@ -9,21 +9,41 @@ import { GoogleGenAI } from "@google/genai";
 dotenv.config();
 
 const PDFNAME = "./Product.pdf";
-const COLLECTION_NAME = "langchainjs-product-pdfjs-deepseek-v1";
+const COLLECTION_NAME = "langchainjs-product-pdfjs-deepseek-v1-Newcitation";
 const BATCH_SIZE = 20;
 const CHUNK_SIZE = 1500;
 const CHUNK_OVERLAP = 500;
 
-
 async function loadAndSplitPDF() {
   const loader = new PDFLoader(PDFNAME, { splitPages: true });
   const docs = await loader.load();
+
+ 
+  const docsWithPage = docs.map((doc, idx) => ({
+    ...doc,
+    metadata: {
+      ...doc.metadata,
+      source: "Product.pdf",
+      page: idx + 1,
+    },
+  }));
+
   const splitter = new RecursiveCharacterTextSplitter({
     chunkSize: CHUNK_SIZE,
     chunkOverlap: CHUNK_OVERLAP,
-    separators: ["\n\n", "\n", ". ", " ", ""],
   });
-  return await splitter.splitDocuments(docs);
+
+  const chunks = await splitter.splitDocuments(docsWithPage);
+
+  
+  return chunks.map((chunk, idx) => ({
+    ...chunk,
+    metadata: {
+      source: "Product.pdf",
+      page: chunk.metadata.page, 
+      chunk_id: idx + 1,
+    },
+  }));
 }
 
 
@@ -48,20 +68,35 @@ async function setupDenseVectorStore(chunks) {
       collectionName: COLLECTION_NAME,
     });
   }
+    
 
   let vectorStore = null;
-  for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
-    const batch = chunks.slice(i, i + BATCH_SIZE);
-    if (!vectorStore) {
-      vectorStore = await QdrantVectorStore.fromDocuments(batch, embeddings, {
+
+for (let i = 0; i < chunks.length; i += BATCH_SIZE) {
+  const batch = chunks.slice(i, i + BATCH_SIZE).map((doc, idx) => ({
+    pageContent: doc.pageContent,
+    metadata: {
+      source: "Product.pdf",
+      page:doc.metadata.page,
+      
+    },
+  }));
+
+  if (!vectorStore) {
+    vectorStore = await QdrantVectorStore.fromDocuments(
+      batch,
+      embeddings,
+      {
         url: process.env.QDRANT_URL,
         apiKey: process.env.QDRANT_API_KEY,
         collectionName: COLLECTION_NAME,
-      });
-    } else {
-      await vectorStore.addDocuments(batch);
-    }
+      }
+    );
+  } else {
+    await vectorStore.addDocuments(batch);
   }
+}
+
 
   return vectorStore;
 }
@@ -103,11 +138,26 @@ async function denseSearch(vectorStore, query, k = 3) {
 async function generateAnswerWithGemini(chunks, userQuery) {
   const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
-  const context = chunks
-    .map((d, idx) => `CHUNK ${idx + 1}:\n${d.pageContent}`)
-    .join("\n\n");
+ const context = chunks
+  .map(
+    (d) =>
+      `CHUNK ${d.metadata.chunk_id}
+Source: ${d.metadata.source}
+Page: ${d.metadata.page}
 
-  const prompt = `You are a helpful document assistant. Use ONLY the provided context to answer the question.
+${d.pageContent}`
+  )
+  .join("\n\n");
+
+
+  const prompt = `
+You are a compliance document assistant.
+
+Rules:
+- Use ONLY the provided context.
+- Every bullet point MUST include a citation.
+- Citation format:
+  [Source: <file>, Page: <page>]
 
 Context:
 ${context}
@@ -115,13 +165,9 @@ ${context}
 Question:
 ${userQuery}
 
-Answer:`;
-
-  const resp = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: prompt,
-  });
-
+Answer (with citations):
+`;
+const resp = await ai.models.generateContent({ model: "gemini-2.5-flash", contents: prompt, });
   return (
     resp?.text ||
     resp?.response?.text() ||
@@ -136,7 +182,7 @@ Answer:`;
     const allChunks = await loadAndSplitPDF();
     const vectorStore = await setupDenseVectorStore(allChunks);
 
-    const userQuery = "what do you know about ITSAR203082209(S2,R2.2.3)";
+    const userQuery = "what are the requirements related to supplier security?";
 
     
     const refNumber = await extractReferenceNumber(userQuery);
@@ -146,9 +192,10 @@ Answer:`;
       
       relevantChunks = keywordSearch(allChunks, refNumber);
     } else {
-      relevantChunks = await denseSearch(vectorStore, userQuery, 3);
+      relevantChunks = await denseSearch(vectorStore, userQuery, 6);
     }
 
+      
 
     const answer = await generateAnswerWithGemini(relevantChunks, userQuery);
 
